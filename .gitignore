@@ -5,3 +5,4 @@ Output: (empty - output nothing)node_modules/
 dist/
 build/
 *.log
+node_modules/
