@@ -5,3 +5,4 @@ The provided input shows a modified file named 'IconChangerApp' which appears to
 dist/
 build/
 *.log
+node_modules/
