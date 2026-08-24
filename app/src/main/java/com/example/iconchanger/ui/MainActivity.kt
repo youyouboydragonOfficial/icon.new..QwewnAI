@@ -473,11 +473,207 @@ class MainActivity : AppCompatActivity() {
             .setTitle(R.string.update_available)
             .setMessage(getString(R.string.new_version_found, release.tagName))
             .setPositiveButton(R.string.download_update) { _, _ ->
-                // ブラウザでリリースページを開く
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(release.htmlUrl))
-                startActivity(intent)
+                // APK をバックグラウンドでダウンロードしてインストール
+                downloadAndInstallApk(release)
             }
             .setNegativeButton(R.string.later, null)
             .show()
+    }
+
+    /**
+     * GitHub から APK をダウンロードしてインストール
+     */
+    private fun downloadAndInstallApk(release: com.example.iconchanger.model.GitHubRelease) {
+        lifecycleScope.launch {
+            try {
+                binding.updateButton.isEnabled = false
+                binding.updateButton.text = "Downloading..."
+                
+                // リリースから APK アセットを探す
+                val apkAsset = release.assets.find { it.contentType == "application/vnd.android.package-archive" }
+                    ?: release.assets.find { it.name.endsWith(".apk") }
+                
+                if (apkAsset == null) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "No APK found in this release. Opening release page...",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    // フォールバック：ブラウザでリリースページを開く
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(release.htmlUrl))
+                    startActivity(intent)
+                    return@launch
+                }
+                
+                // ダウンロード開始
+                val downloadId = startDownload(apkAsset.downloadUrl, apkAsset.name)
+                
+                if (downloadId != -1L) {
+                    // ダウンロードマネージャーでダウンロード
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Download started. Check notification for progress.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    // ダウンロードマネージャーが使えない場合、OkHttp で直接ダウンロード
+                    downloadWithOkHttp(apkAsset.downloadUrl, apkAsset.name)
+                }
+                
+            } catch (e: Exception) {
+                Toast.makeText(
+                    this@MainActivity,
+                    "Download failed: ${e.message}",
+                    Toast.LENGTH_LONG
+                ).show()
+                
+                // フォールバック：ブラウザでリリースページを開く
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(release.htmlUrl))
+                startActivity(intent)
+            } finally {
+                binding.updateButton.isEnabled = true
+                binding.updateButton.text = getString(R.string.check_update)
+            }
+        }
+    }
+
+    /**
+     * DownloadManager を使用して APK をダウンロード
+     */
+    private fun startDownload(url: String, fileName: String): Long {
+        return try {
+            val downloadManager = getSystemService(DOWNLOAD_SERVICE) as android.app.DownloadManager
+            
+            val request = android.app.DownloadManager.Request(Uri.parse(url))
+                .setTitle("Icon Changer Pro Update")
+                .setDescription("Downloading new version...")
+                .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setDestinationInExternalPublicDir(
+                    android.os.Environment.DIRECTORY_DOWNLOADS,
+                    fileName
+                )
+                .setMimeType("application/vnd.android.package-archive")
+                .setAllowedOverMetered(true)
+                .setAllowedOverRoaming(true)
+            
+            downloadManager.enqueue(request)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            -1L
+        }
+    }
+
+    /**
+     * OkHttp を使用して APK を直接ダウンロード（DownloadManager が使えない場合）
+     */
+    private suspend fun downloadWithOkHttp(url: String, fileName: String) {
+        withContext(Dispatchers.IO) {
+            val client = OkHttpClient.Builder()
+                .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+            
+            val request = Request.Builder()
+                .url(url)
+                .header("Accept", "application/vnd.android.package-archive")
+                .build()
+            
+            try {
+                val response = client.newCall(request).execute()
+                
+                if (!response.isSuccessful) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Download failed: HTTP ${response.code}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                    return@withContext
+                }
+                
+                val body = response.body ?: return@withContext
+                
+                // ファイル保存先
+                val downloadDir = File(getExternalFilesDir(null), "downloads")
+                downloadDir.mkdirs()
+                val outputFile = File(downloadDir, fileName)
+                
+                // ダウンロード実行
+                outputFile.outputStream().use { output ->
+                    body.byteStream().use { input ->
+                        input.copyTo(output)
+                    }
+                }
+                
+                // インストールを促すインテント
+                withContext(Dispatchers.Main) {
+                    installApk(outputFile)
+                }
+                
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Download error: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
+
+    /**
+     * APK ファイルのインストールを促す
+     */
+    private fun installApk(file: File) {
+        if (!file.exists()) {
+            Toast.makeText(this, "APK file not found", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            androidx.core.content.FileProvider.getUriForFile(
+                this,
+                "$packageName.fileprovider",
+                file
+            )
+        } else {
+            android.net.Uri.fromFile(file)
+        }
+        
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                putExtra(
+                    android.provider.Settings.EXTRA_INSTALLER_PACKAGE_NAME,
+                    packageName
+                )
+            }
+        }
+        
+        // インストール権限の確認（Android 8.0 以上）
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (!packageManager.canRequestPackageInstalls()) {
+                MaterialAlertDialogBuilder(this)
+                    .setTitle("Install Permission Required")
+                    .setMessage("This app needs permission to install updates. Would you like to grant this permission?")
+                    .setPositiveButton("Grant Permission") { _, _ ->
+                        val settingsIntent = Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
+                        settingsIntent.data = android.net.Uri.parse("package:$packageName")
+                        startActivity(settingsIntent)
+                    }
+                    .setNegativeButton("Later", null)
+                    .show()
+                return
+            }
+        }
+        
+        try {
+            startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(this, "Failed to start installation: ${e.message}", Toast.LENGTH_LONG).show()
+        }
     }
 }

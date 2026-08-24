@@ -38,6 +38,15 @@
     <string name="up_to_date">Up to Date</string>
     <string name="you_have_latest_version">You have the latest version installed.</string>
     <string name="update_check_failed">Failed to check for updates. Please check your internet connection.</string>
+    <string name="downloading_update">Downloading update…</string>
+    <string name="download_started">Download started. Check notification for progress.</string>
+    <string name="download_failed">Download failed: %1$s</string>
+    <string name="no_apk_found">No APK found in this release. Opening release page…</string>
+    <string name="install_permission_required">Install Permission Required</string>
+    <string name="install_permission_message">This app needs permission to install updates. Would you like to grant this permission?</string>
+    <string name="grant_permission_btn">Grant Permission</string>
+    <string name="failed_to_start_installation">Failed to start installation: %1$s</string>
+    <string name="apk_file_not_found">APK file not found</string>
     
     <!-- Permission Messages -->
     <string name="permission_required">Permission Required</string>
