@@ -27,8 +27,6 @@ dist/
 build/
 coverage/
 htmlcov/
-*.log
-*.tmp
 
 # Environment
 .env
@@ -40,10 +38,14 @@ htmlcov/
 .idea/
 *.swp
 *.swo
+*.tmp
 
 # System
 .DS_Store
 Thumbs.db
+
+# Logs
+*.log
 
 # Coverage
 .coverage
@@ -71,4 +73,4 @@ Thumbs.db
 *.tar.bz2
 *.tar.xz
 *.tar.zst
-```.next/
+```
